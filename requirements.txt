@@ -1,0 +1,7 @@
+torch
+torchvision
+einops
+diffusers
+matplotlib
+IPython
+ipykernel

@@ -1,0 +1,19 @@
+services:
+  constrained_diffusion:
+    build: ./  
+    tty: true
+    container_name: constrained_diffusion
+    image: constrained_diffusion:latest
+    volumes:
+      - .:/usr/src/code
+      - /usr/src/code/.venv
+    working_dir: /usr/src/code/
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all  
+              capabilities: [gpu]
+    runtime: nvidia
