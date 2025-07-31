@@ -150,7 +150,7 @@ class Sampler(ABC):
                 *model_args,
             )
 
-        plt.show()
+        # plt.show()
         plt.tight_layout()
         plt.savefig("sampled_images.png")
         return x_t

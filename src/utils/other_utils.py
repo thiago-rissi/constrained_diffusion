@@ -4,7 +4,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
-
+import numpy as np
 
 def save_animation(xs, gif_name, interval=300, repeat_delay=5000):
     fig = plt.figure()
@@ -101,3 +101,17 @@ def plot_generated_images(noise, result):
         ax.set_title(title)
         show_tensor_image(img)
     plt.show()
+
+def calculate_class_proportions(imgs: list, classifier: torch.nn.Module, device: str, n_classes: int):
+    imgs_tensor = torch.cat(imgs, dim=0)
+
+    # Use the classifier to predict classes for each image
+    with torch.no_grad():
+        preds = classifier(imgs_tensor.to(device))
+        pred_labels = preds.argmax(dim=1).cpu().numpy()
+
+    # Calculate the proportion of each class
+    class_counts = np.bincount(pred_labels, minlength=n_classes)
+    class_proportions = class_counts / class_counts.sum()
+    for i, prop in enumerate(class_proportions):
+        print(f"{i}: {prop:.2f}", end="  ")
