@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-# ----- 1. Model -----
 class MNISTClassifier(nn.Module):
     def __init__(self):
         super().__init__()

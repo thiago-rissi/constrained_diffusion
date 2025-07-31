@@ -1,10 +1,62 @@
+from collections.abc import Callable
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import numpy as np
+from tqdm import tqdm
+
+@torch.no_grad()
+def sample_image(
+    model: torch.nn.Module,
+    x_t: torch.Tensor,
+    reverse: Callable,
+    timesteps: torch.Tensor,
+    *model_args,
+) -> torch.Tensor:
+    
+    for step in reversed(timesteps):
+        t = step.float()
+        t = torch.full((1,), t, device=x_t.device)
+        pred_t = model(x_t, t)
+        x_t = reverse(x_t, t, pred_t)
+
+    return x_t
+    
+
+def sample_images(
+    model: torch.nn.Module,
+    reverse: Callable,
+    timesteps: torch.Tensor,
+    img_ch: int,
+    img_size: int,
+    device: torch.device,
+    sample_size: int,
+    plot: bool,
+    save: bool,
+    save_path: str = "/usr/src/code/sampled_images.png",
+    *model_args,
+) -> list:
+   
+
+    imgs = []
+    for _ in tqdm(range(sample_size), desc="\t Sampling images"):
+        x_t = torch.randn((1, img_ch, img_size, img_size), device=device)
+        imgs.append(sample_image(model, x_t, reverse, timesteps, device, *model_args))
+        
+    if plot:
+        fig, axs = plt.subplots(1, sample_size, figsize=(5, sample_size * 5))
+        for i, img in enumerate(imgs):
+            axi = axs[i] if sample_size > 1 else axs
+            axi.axis("off")
+            show_tensor_image(axi, img.detach().cpu())
+        plt.tight_layout()
+        plt.show()
+        if save: plt.savefig(save_path)
+
+    return imgs
 
 def save_animation(xs, gif_name, interval=300, repeat_delay=5000):
     fig = plt.figure()
@@ -85,10 +137,9 @@ def transform_tensor_to_image(tensor: torch.Tensor):
     return reverse_transforms(tensor)
 
 
-def show_tensor_image(tensor: torch.Tensor):
+def show_tensor_image(ax: plt.Axes, tensor: torch.Tensor):
     image = transform_tensor_to_image(tensor[0].detach().cpu())
-
-    plt.imshow(image, cmap="gray")
+    ax.imshow(image)
 
 
 def plot_generated_images(noise, result):

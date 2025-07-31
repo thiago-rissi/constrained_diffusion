@@ -1,7 +1,9 @@
 
 import torch
-from utils.ddpm_utils import *
-from models import UNet
+from utils.schedulers import *
+from utils.samplers import *
+from utils.trainers import *
+from models.UNet import UNet, UNet2DWrapper
 from utils.other_utils import *
 
 torch.set_float32_matmul_precision('high')
@@ -18,21 +20,20 @@ if __name__ == "__main__":
     timesteps = 250
     scheduler = CosineScheduler(timesteps=timesteps, device=device)
 
-    # model = UNet.UNet2DWrapper()
-    model = UNet.UNet(
+    # model = UNet2DWrapper()
+    model = UNet(
         timesteps, IMG_CH, IMG_SIZE, down_chs=(64, 64, 128), t_embed_dim=8, c_embed_dim=0
     )
     print("Num params: ", sum(p.numel() for p in model.parameters()))
     model.to(device)
     model = torch.compile(model)
 
-    trainer = DDPMTrainer(scheduler=scheduler, device=device)
+    trainer = DDPMTrainer(scheduler=scheduler, device=device, train_timesteps=scheduler.t, sample_timesteps=scheduler.t)
     ddpm_sampler = DDPMSampler(
         scheduler=scheduler,
         device=device,
         img_ch=IMG_CH,
         img_size=IMG_SIZE,
-        ncols=ncols,
     )
 
     num_epochs = 5

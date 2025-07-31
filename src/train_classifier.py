@@ -6,7 +6,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 from models.classifiers import MNISTClassifier
 
-# ----- 2. Data -----
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.1307,), (0.3081,))
