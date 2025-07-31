@@ -9,23 +9,29 @@ import torch.nn.functional as F
 from utils.other_utils import sample_images
 from abc import ABC, abstractmethod
 import random
+import numpy as np
+
 
 class Trainer(ABC):
-    def __init__(self, train_timesteps: torch.Tensor, sample_timesteps: torch.Tensor, device: torch.device):
+    def __init__(
+        self,
+        train_timesteps: torch.Tensor,
+        sample_timesteps: torch.Tensor,
+        device: torch.device,
+    ):
         self.device = device
         self.train_timesteps = train_timesteps
         self.sample_timesteps = sample_timesteps
 
     @abstractmethod
-    def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        pass
-    
     def get_loss(
-        self, model: torch.nn.Module, x_0: torch.Tensor, t: torch.Tensor, *model_args
-    ) -> torch.Tensor:
-        x_noisy, score = self.forward(x_0, t)
-        pred = model(x_noisy, t, *model_args)
-        return F.mse_loss(score, pred)
+        self, model: torch.nn.Module, x_0: torch.Tensor, t: torch.Tensor, **model_args
+    ) -> Any:
+        pass
+
+    @abstractmethod
+    def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> Any:
+        pass
 
     def train(
         self,
@@ -53,11 +59,14 @@ class Trainer(ABC):
                     sampler,
                     plot,
                 )
-                progress_bar.set_postfix(Loss=loss.item(), MeanLoss=sum(losses[-100:]) / 100)
+                progress_bar.set_postfix(
+                    Loss=loss.item(), MeanLoss=sum(losses[-100:]) / 100
+                )
                 progress_bar.update(1)
                 losses.append(loss.item())
 
-        if plot: self.plot_losses(torch.log10(torch.tensor(losses)))
+        if plot:
+            self.plot_losses(torch.log10(torch.tensor(losses)))
         return losses, model
 
     def train_step(
@@ -86,8 +95,17 @@ class Trainer(ABC):
         optimizer.step()
 
         if step > 0 and step % 100 == 0 and plot:
-            _ = sample_images(model, sampler.reverse, self.sample_timesteps, x_0.size(1), x_0.size(2), self.device, sample_size=1, plot=False, save=True)
-                
+            _ = sample_images(
+                model,
+                sampler.reverse,
+                self.sample_timesteps,
+                x_0.size(1),
+                x_0.size(2),
+                self.device,
+                sample_size=1,
+                plot=False,
+                save=True,
+            )
 
         return loss
 
@@ -103,15 +121,29 @@ class Trainer(ABC):
         plt.legend()
         plt.savefig("training_loss.png")
         plt.show()
-    
 
 
 class DDPMTrainer(Trainer):
-    def __init__(self, scheduler: Scheduler, train_timesteps: torch.Tensor, sample_timesteps: torch.Tensor, device: torch.device,):
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        train_timesteps: torch.Tensor,
+        sample_timesteps: torch.Tensor,
+        device: torch.device,
+    ):
         self.scheduler = scheduler
         super().__init__(train_timesteps, sample_timesteps, device)
 
-    def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def get_loss(
+        self, model: torch.nn.Module, x_0: torch.Tensor, t: torch.Tensor, **model_args
+    ) -> torch.Tensor:
+        x_noisy, score = self.forward(x_0, t)
+        pred = model(x_noisy, t, *model_args)
+        return F.mse_loss(score, pred)
+
+    def forward(
+        self, x_0: torch.Tensor, t: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         The forward diffusion process
         Returns the noise applied to an image at timestep t
@@ -128,7 +160,40 @@ class DDPMTrainer(Trainer):
         x_t = sqrt_alpha_bar_t * x_0 + sqrt_one_minus_alpha_bar_t * noise
         return x_t, noise
 
-    
 
+class VESDETrainer(Trainer):
+    def __init__(
+        self,
+        train_timesteps: torch.Tensor,
+        sample_timesteps: torch.Tensor,
+        device: torch.device,
+    ):
+        self.sigma = 0.01
+        super().__init__(train_timesteps, sample_timesteps, device)
 
+    def get_loss(
+        self,
+        model: torch.nn.Module,
+        x_0: torch.Tensor,
+        t: torch.Tensor,
+        **model_args,
+    ) -> torch.Tensor:
+        eps = 1e-5
+        t = t * (1.0 - eps) + eps
+        x_noisy, score, std = self.forward(x_0, t)
+        pred = model(x_noisy, t, *model_args)
+        return F.mse_loss(score, pred * std[:, None, None, None], reduction="mean")
 
+    def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> Any:
+
+        z = torch.randn_like(x_0)
+        std = self.marginal_prob_std(t, self.sigma)
+        noise = z * std[:, None, None, None]
+        x_t = x_0 + noise
+
+        return x_t, -z, std
+
+    def marginal_prob_std(self, t: torch.Tensor, sigma_init: float) -> torch.Tensor:
+
+        t = torch.tensor(t, device=self.device)
+        return torch.sqrt((sigma_init ** (2 * t) - 1.0) / 2.0 / np.log(sigma_init))
