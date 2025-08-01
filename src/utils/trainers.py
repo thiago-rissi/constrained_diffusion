@@ -99,8 +99,8 @@ class Trainer(ABC):
                 model,
                 sampler.reverse,
                 self.sample_timesteps,
-                x_0.size(1),
-                x_0.size(2),
+                sampler.img_ch,
+                sampler.img_size,
                 self.device,
                 sample_size=1,
                 plot=False,
@@ -194,6 +194,4 @@ class VESDETrainer(Trainer):
         return x_t, -z, std
 
     def marginal_prob_std(self, t: torch.Tensor, sigma_init: float) -> torch.Tensor:
-
-        t = torch.tensor(t, device=self.device)
         return torch.sqrt((sigma_init ** (2 * t) - 1.0) / 2.0 / np.log(sigma_init))
