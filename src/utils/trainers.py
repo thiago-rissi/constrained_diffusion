@@ -4,18 +4,18 @@ from typing import Any
 from torch.utils.data import DataLoader
 from utils.samplers import Sampler
 from utils.schedulers import Scheduler
-from tqdm import tqdm
+from tqdm import tqdm, trange
 import torch.nn.functional as F
 from utils.other_utils import sample_images
 from abc import ABC, abstractmethod
-import random
-import numpy as np
+from models.UNet import marginal_prob_std
+from functools import partial
 
 
 class Trainer(ABC):
     def __init__(
         self,
-        train_timesteps: torch.Tensor,
+        train_timesteps: None | torch.Tensor,
         sample_timesteps: torch.Tensor,
         device: torch.device,
     ):
@@ -25,12 +25,21 @@ class Trainer(ABC):
 
     @abstractmethod
     def get_loss(
-        self, model: torch.nn.Module, x_0: torch.Tensor, t: torch.Tensor, **model_args
+        self,
+        model: torch.nn.Module,
+        x_0: torch.Tensor,
+        y: torch.Tensor,
+        t: torch.Tensor,
+        **model_args,
     ) -> Any:
         pass
 
     @abstractmethod
     def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> Any:
+        pass
+
+    @abstractmethod
+    def get_random_timestep(self, batch_size: int) -> torch.Tensor:
         pass
 
     def train(
@@ -43,15 +52,16 @@ class Trainer(ABC):
     ):
         losses = []
         model.train()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
         for epoch in range(num_epochs):
             progress_bar = tqdm(
                 range(len(dataloader)), desc=f"Epoch {epoch+1}/{num_epochs}"
             )
-            for step, (x_0, _) in enumerate(dataloader):
+            for step, (x_0, y) in enumerate(dataloader):
                 loss = self.train_step(
                     model,
                     x_0,
+                    y,
                     optimizer,
                     losses,
                     epoch,
@@ -64,6 +74,7 @@ class Trainer(ABC):
                 )
                 progress_bar.update(1)
                 losses.append(loss.item())
+            torch.save(model, "model.pkl")
 
         if plot:
             self.plot_losses(torch.log10(torch.tensor(losses)))
@@ -73,6 +84,7 @@ class Trainer(ABC):
         self,
         model: torch.nn.Module,
         x_0: torch.Tensor,
+        y: torch.Tensor,
         optimizer: torch.optim.Optimizer,
         losses: list[float],
         epoch: int,
@@ -86,10 +98,10 @@ class Trainer(ABC):
         optimizer.zero_grad()
 
         x_0 = x_0.to(self.device)
-        t = self.train_timesteps[random.randint(0, len(self.train_timesteps) - 1)]
-        t = torch.tensor([t] * x_0.size(0), device=self.device)
+        y = y.to(self.device)
+        t = self.get_random_timestep(x_0.size(0)).to(self.device)
 
-        loss = self.get_loss(model, x_0, t)
+        loss = self.get_loss(model, x_0, y, t)
 
         loss.backward()
         optimizer.step()
@@ -103,7 +115,7 @@ class Trainer(ABC):
                 sampler.img_size,
                 self.device,
                 sample_size=1,
-                plot=False,
+                plot=plot,
                 save=True,
             )
 
@@ -134,8 +146,19 @@ class DDPMTrainer(Trainer):
         self.scheduler = scheduler
         super().__init__(train_timesteps, sample_timesteps, device)
 
+    def get_random_timestep(self, batch_size: int) -> torch.Tensor:
+        """
+        Get random timesteps for the batch.
+        """
+        return torch.randint(0, self.scheduler.T, (batch_size,), device=self.device)
+
     def get_loss(
-        self, model: torch.nn.Module, x_0: torch.Tensor, t: torch.Tensor, **model_args
+        self,
+        model: torch.nn.Module,
+        x_0: torch.Tensor,
+        y: torch.Tensor,
+        t: torch.Tensor,
+        **model_args,
     ) -> torch.Tensor:
         x_noisy, score = self.forward(x_0, t)
         pred = model(x_noisy, t, *model_args)
@@ -164,34 +187,42 @@ class DDPMTrainer(Trainer):
 class VESDETrainer(Trainer):
     def __init__(
         self,
-        train_timesteps: torch.Tensor,
+        train_timesteps: torch.Tensor | None,
         sample_timesteps: torch.Tensor,
         device: torch.device,
     ):
-        self.sigma = 0.01
+        self.sigma = 25
+        self.marginal_prob_std = partial(
+            marginal_prob_std, sigma=self.sigma, device=device
+        )
         super().__init__(train_timesteps, sample_timesteps, device)
+
+    def get_random_timestep(self, batch_size: int) -> torch.Tensor:
+        """
+        Get random timesteps for the batch.
+        """
+        eps = 1e-5
+        random_t = torch.rand(batch_size, device=self.device) * (1.0 - eps) + eps
+        return random_t
 
     def get_loss(
         self,
         model: torch.nn.Module,
         x_0: torch.Tensor,
+        y: torch.Tensor,
         t: torch.Tensor,
         **model_args,
     ) -> torch.Tensor:
-        eps = 1e-5
-        t = t * (1.0 - eps) + eps
+
         x_noisy, score, std = self.forward(x_0, t)
-        pred = model(x_noisy, t, *model_args)
-        return F.mse_loss(score, pred * std[:, None, None, None], reduction="mean")
+        pred = model(x_noisy, t, y)
+        return F.mse_loss(pred * std[:, None, None, None], score, reduction="mean")
 
     def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> Any:
 
         z = torch.randn_like(x_0)
-        std = self.marginal_prob_std(t, self.sigma)
+        std = self.marginal_prob_std(t)
         noise = z * std[:, None, None, None]
         x_t = x_0 + noise
 
         return x_t, -z, std
-
-    def marginal_prob_std(self, t: torch.Tensor, sigma_init: float) -> torch.Tensor:
-        return torch.sqrt((sigma_init ** (2 * t) - 1.0) / 2.0 / np.log(sigma_init))

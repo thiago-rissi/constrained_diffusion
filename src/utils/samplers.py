@@ -1,12 +1,11 @@
-from networkx import sigma
 import torch
-import matplotlib.pyplot as plt
-import utils.other_utils as other_utils
 from abc import abstractmethod, ABC
 from pdlmc.pdlmc import PDLMCChain
 from typing import Callable
 from utils.schedulers import Scheduler
 import numpy as np
+from models.UNet import marginal_prob_std, diffusion_coeff
+from functools import partial
 
 
 class Sampler(ABC):
@@ -25,7 +24,7 @@ class Sampler(ABC):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: float,
+        dt: torch.Tensor,
         pred_t: torch.Tensor,
         **args,
     ) -> torch.Tensor:
@@ -48,7 +47,7 @@ class VPSDESampler(Sampler):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: float,
+        dt: torch.Tensor,
         pred_t: torch.Tensor,
         deterministic: bool = False,
         **args,
@@ -106,7 +105,7 @@ class PDLMCVPSampler(Sampler):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: float,
+        dt: torch.Tensor,
         pred_t: torch.Tensor,
         deterministic: bool = False,
         **args,
@@ -152,7 +151,7 @@ class DDPMSampler(Sampler):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: float,
+        dt: torch.Tensor,
         pred_t: torch.Tensor,
         **args,
     ) -> torch.Tensor:
@@ -176,41 +175,89 @@ class DDPMSampler(Sampler):
             return u_t + torch.sqrt(B_t) * new_noise
 
 
-class VESDESampler(Sampler):
+class PDLMCVESampler(Sampler):
     def __init__(
         self,
         device: torch.device,
         img_ch: int,
         img_size: int,
-        sigma_init: float = 0.01,
+        gfuncs: list[Callable],
+        lmc_steps: int,
+        step_size: float,
+        step_size_lambda: float,
+        sigma_init: float = 25.0,
     ):
         super().__init__(device, img_ch, img_size)
+        self.marginal_prob_std = partial(
+            marginal_prob_std, sigma=sigma_init, device=device
+        )
+        self.diffusion_coeff = partial(diffusion_coeff, sigma=sigma_init, device=device)
         self.sigma_init = sigma_init
-
-    def marginal_prob_std(self, t: torch.Tensor, sigma_init: float) -> torch.Tensor:
-        return torch.sqrt((sigma_init ** (2 * t) - 1.0) / 2.0 / np.log(sigma_init))
-
-    def diffusion_coeff(self, t: torch.Tensor, sigma: float) -> torch.Tensor:
-        return torch.tensor(sigma**t, device=self.device)
+        self.lmc_chain = PDLMCChain(
+            gfuncs=gfuncs,
+            step_size=step_size,
+            step_size_lambda=step_size_lambda,
+            lmc_steps=lmc_steps,
+            device=device,
+        )
 
     @torch.no_grad()
     def reverse(
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: float,
+        dt: torch.Tensor,
         pred_t: torch.Tensor,
         **args,
     ) -> torch.Tensor:
 
-        std = self.marginal_prob_std(t, self.sigma_init)
+        std = self.marginal_prob_std(t)
         if t.item() == 1:
             x_t = x_t * std[:, None, None, None]
 
-        g = self.diffusion_coeff(t, std.item())
+        g = self.diffusion_coeff(t)
+
+        score = pred_t
+        score = self.lmc_chain.run_chain(score=score, x=x_t)
+        mean_x = x_t + (g**2)[:, None, None, None] * score * dt
+        x_t = mean_x + torch.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
+
+        return x_t
+
+
+class VESDESampler(Sampler):
+    def __init__(
+        self,
+        device: torch.device,
+        img_ch: int,
+        img_size: int,
+        sigma_init: float = 25.0,
+    ):
+        super().__init__(device, img_ch, img_size)
+        self.marginal_prob_std = partial(
+            marginal_prob_std, sigma=sigma_init, device=device
+        )
+        self.diffusion_coeff = partial(diffusion_coeff, sigma=sigma_init, device=device)
+        self.sigma_init = sigma_init
+
+    @torch.no_grad()
+    def reverse(
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        dt: torch.Tensor,
+        pred_t: torch.Tensor,
+        **args,
+    ) -> torch.Tensor:
+
+        std = self.marginal_prob_std(t)
+        if t.item() == 1:
+            x_t = x_t * std[:, None, None, None]
+
+        g = self.diffusion_coeff(t)
 
         score = pred_t
         mean_x = x_t + (g**2)[:, None, None, None] * score * dt
-        x_t = mean_x + np.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
+        x_t = mean_x + torch.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
 
         return x_t

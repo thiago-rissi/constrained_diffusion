@@ -7,7 +7,6 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
-from utils.samplers import Sampler
 
 
 @torch.no_grad()
@@ -19,11 +18,13 @@ def sample_image(
     *model_args,
 ) -> torch.Tensor:
 
+    dt = timesteps[1] - timesteps[0]
     for step in reversed(timesteps):
         t = step.float()
         t = torch.full((1,), t, device=x_t.device)
-        pred_t = model(x_t, t)
-        x_t = reverse(x_t, t, pred_t)
+        y = torch.randint(0, 10, (1,), device=x_t.device)
+        pred_t = model(x_t, t, y)
+        x_t = reverse(x_t, t, dt, pred_t)
 
     return x_t
 
@@ -120,7 +121,9 @@ def load_transformed_MNIST(img_size, batch_size):
     train_set = load_MNIST(data_transform, train=True)
     test_set = load_MNIST(data_transform, train=False)
     data = torch.utils.data.ConcatDataset([train_set, test_set])
-    dataloader = DataLoader(data, batch_size=batch_size, shuffle=True, drop_last=True)
+    dataloader = DataLoader(
+        data, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4
+    )
     return data, dataloader
 
 
@@ -130,7 +133,7 @@ def transform_tensor_to_image(tensor: torch.Tensor):
     """
     reverse_transforms = transforms.Compose(
         [
-            transforms.Lambda(lambda t: (t + 1) / 2),
+            # transforms.Lambda(lambda t: (t + 1) / 2),
             transforms.Lambda(lambda t: torch.minimum(torch.tensor([1]), t)),
             transforms.Lambda(lambda t: torch.maximum(torch.tensor([0]), t)),
             transforms.ToPILImage(),
@@ -141,7 +144,7 @@ def transform_tensor_to_image(tensor: torch.Tensor):
 
 def show_tensor_image(ax: plt.Axes, tensor: torch.Tensor):
     image = transform_tensor_to_image(tensor[0].detach().cpu())
-    ax.imshow(image)
+    ax.imshow(image, cmap="gray")
 
 
 def plot_generated_images(noise, result):

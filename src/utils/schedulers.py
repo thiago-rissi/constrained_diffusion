@@ -1,6 +1,7 @@
 import torch
 from typing import Protocol
 
+
 class Scheduler(Protocol):
     alpha_bar: torch.Tensor
     sqrt_alpha_bar: torch.Tensor
