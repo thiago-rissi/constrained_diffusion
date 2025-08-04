@@ -24,9 +24,9 @@ class Sampler(ABC):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: torch.Tensor,
         pred_t: torch.Tensor,
-        **args,
+        *args,
+        **kargs,
     ) -> torch.Tensor:
         pass
 
@@ -151,7 +151,6 @@ class DDPMSampler(Sampler):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        dt: torch.Tensor,
         pred_t: torch.Tensor,
         **args,
     ) -> torch.Tensor:
@@ -208,6 +207,7 @@ class PDLMCVESampler(Sampler):
         t: torch.Tensor,
         dt: torch.Tensor,
         pred_t: torch.Tensor,
+        last: bool = False,
         **args,
     ) -> torch.Tensor:
 
@@ -220,6 +220,10 @@ class PDLMCVESampler(Sampler):
         score = pred_t
         score = self.lmc_chain.run_chain(score=score, x=x_t)
         mean_x = x_t + (g**2)[:, None, None, None] * score * dt
+
+        if last:
+            return mean_x
+
         x_t = mean_x + torch.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
 
         return x_t
@@ -247,6 +251,7 @@ class VESDESampler(Sampler):
         t: torch.Tensor,
         dt: torch.Tensor,
         pred_t: torch.Tensor,
+        last: bool = False,
         **args,
     ) -> torch.Tensor:
 
@@ -258,6 +263,10 @@ class VESDESampler(Sampler):
 
         score = pred_t
         mean_x = x_t + (g**2)[:, None, None, None] * score * dt
+
+        if last:
+            return mean_x
+
         x_t = mean_x + torch.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
 
         return x_t

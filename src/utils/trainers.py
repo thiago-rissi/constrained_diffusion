@@ -10,6 +10,7 @@ from utils.other_utils import sample_images
 from abc import ABC, abstractmethod
 from models.UNet import marginal_prob_std
 from functools import partial
+from torch.optim.lr_scheduler import LambdaLR
 
 
 class Trainer(ABC):
@@ -48,11 +49,13 @@ class Trainer(ABC):
         dataloader: DataLoader,
         num_epochs: int,
         sampler: Sampler,
+        model_path: str,
         plot: bool = True,
     ):
         losses = []
         model.train()
-        optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: max(0.2, 0.98**epoch))
         for epoch in range(num_epochs):
             progress_bar = tqdm(
                 range(len(dataloader)), desc=f"Epoch {epoch+1}/{num_epochs}"
@@ -74,10 +77,11 @@ class Trainer(ABC):
                 )
                 progress_bar.update(1)
                 losses.append(loss.item())
-            torch.save(model, "model.pkl")
 
-        if plot:
-            self.plot_losses(torch.log10(torch.tensor(losses)))
+            torch.save(model.state_dict(), model_path)
+            scheduler.step()
+
+        self.plot_losses(torch.log10(torch.tensor(losses)))
         return losses, model
 
     def train_step(
@@ -214,9 +218,9 @@ class VESDETrainer(Trainer):
         **model_args,
     ) -> torch.Tensor:
 
-        x_noisy, score, std = self.forward(x_0, t)
-        pred = model(x_noisy, t, y)
-        return F.mse_loss(pred * std[:, None, None, None], score, reduction="mean")
+        x_noisy, z, std = self.forward(x_0, t)
+        score = model(x_noisy, t, y)
+        return F.mse_loss(score * std[:, None, None, None], -z, reduction="mean")
 
     def forward(self, x_0: torch.Tensor, t: torch.Tensor) -> Any:
 
@@ -225,4 +229,4 @@ class VESDETrainer(Trainer):
         noise = z * std[:, None, None, None]
         x_t = x_0 + noise
 
-        return x_t, -z, std
+        return x_t, z, std

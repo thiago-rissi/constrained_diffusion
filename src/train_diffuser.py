@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     timesteps = 250
     sigma = 25.0
-    eps = 1e-5
+    eps = 1e-3
 
     # model = UNet2DWrapper()
     # model = UNet(
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     #     c_embed_dim=0,
     # )
 
-    model = UNet_res(partial(marginal_prob_std, sigma=sigma, device=device))
+    model = UNet_Tranformer(partial(marginal_prob_std, sigma=sigma, device=device))
     print("Num params: ", sum(p.numel() for p in model.parameters()))
     model.to(device)
 
@@ -51,5 +51,6 @@ if __name__ == "__main__":
         dataloader=dataloader,
         num_epochs=num_epochs,
         sampler=vesde_sampler,
-        plot=True,
+        model_path="unet_transformer.pth",
+        plot=False,
     )

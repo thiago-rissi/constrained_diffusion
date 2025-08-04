@@ -19,13 +19,18 @@ def sample_image(
 ) -> torch.Tensor:
 
     dt = timesteps[1] - timesteps[0]
-    for step in reversed(timesteps):
+    for step in reversed(timesteps[1:]):
         t = step.float()
-        t = torch.full((1,), t, device=x_t.device)
+        t = torch.full((1,), t.item(), device=x_t.device)
         y = torch.randint(0, 10, (1,), device=x_t.device)
         pred_t = model(x_t, t, y)
         x_t = reverse(x_t, t, dt, pred_t)
 
+    t = timesteps[0]
+    t = torch.full((1,), t.item(), device=x_t.device)
+    y = torch.randint(0, 10, (1,), device=x_t.device)
+    pred_t = model(x_t, t, y)
+    x_t = reverse(x_t, t, dt, pred_t, True)
     return x_t
 
 
@@ -49,7 +54,7 @@ def sample_images(
         imgs.append(sample_image(model, x_t, reverse, timesteps, device, *model_args))
 
     if plot:
-        fig, axs = plt.subplots(1, sample_size, figsize=(5, sample_size * 5))
+        fig, axs = plt.subplots(1, sample_size)
         for i, img in enumerate(imgs):
             axi = axs[i] if sample_size > 1 else axs
             axi.axis("off")
@@ -144,6 +149,7 @@ def transform_tensor_to_image(tensor: torch.Tensor):
 
 def show_tensor_image(ax: plt.Axes, tensor: torch.Tensor):
     image = transform_tensor_to_image(tensor[0].detach().cpu())
+    plt.figure(figsize=(4, 4))
     ax.imshow(image, cmap="gray")
 
 
@@ -160,7 +166,7 @@ def plot_generated_images(noise, result):
 
 
 def calculate_class_proportions(
-    imgs: list, classifier: torch.nn.Module, device: str, n_classes: int
+    imgs: list, classifier: torch.nn.Module, device: torch.device, n_classes: int
 ):
     imgs_tensor = torch.cat(imgs, dim=0)
 
@@ -174,3 +180,13 @@ def calculate_class_proportions(
     class_proportions = class_counts / class_counts.sum()
     for i, prop in enumerate(class_proportions):
         print(f"{i}: {prop:.2f}", end="  ")
+
+
+def calculate_mean_brightness(imgs: list) -> float:
+    """
+    Calculate the mean brightness of a list of images.
+    """
+    total_brightness = 0.0
+    for img in imgs:
+        total_brightness += img.mean().item()
+    return total_brightness / len(imgs) if imgs else 0.0
