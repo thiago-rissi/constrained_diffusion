@@ -26,7 +26,7 @@ class Sampler(ABC):
         t: torch.Tensor,
         pred_t: torch.Tensor,
         *args,
-        **kargs,
+        **kwargs,
     ) -> torch.Tensor:
         pass
 
@@ -50,10 +50,9 @@ class VPSDESampler(Sampler):
         dt: torch.Tensor,
         pred_t: torch.Tensor,
         deterministic: bool = False,
-        **args,
+        **kwargs,
     ) -> torch.Tensor:
 
-        dt = -1
         t = t.int()
 
         if t[0] == 0:
@@ -108,10 +107,9 @@ class PDLMCVPSampler(Sampler):
         dt: torch.Tensor,
         pred_t: torch.Tensor,
         deterministic: bool = False,
-        **args,
+        **kwargs,
     ) -> torch.Tensor:
 
-        dt = -1
         t = t.int()
 
         if t[0] == 0:
@@ -200,6 +198,16 @@ class PDLMCVESampler(Sampler):
             device=device,
         )
 
+    def reverse_step(
+        self, x_t: torch.Tensor, score: torch.Tensor, g: torch.Tensor, dt: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        score = self.lmc_chain.run_chain(score=score, x=x_t)
+        mean_x = x_t + (g**2)[:, None, None, None] * score * dt
+        x_t = mean_x + torch.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
+
+        return x_t, mean_x
+
     @torch.no_grad()
     def reverse(
         self,
@@ -207,6 +215,9 @@ class PDLMCVESampler(Sampler):
         t: torch.Tensor,
         dt: torch.Tensor,
         pred_t: torch.Tensor,
+        y: torch.Tensor,
+        model: torch.nn.Module,
+        update_steps: int = 1,
         last: bool = False,
         **args,
     ) -> torch.Tensor:
@@ -218,13 +229,15 @@ class PDLMCVESampler(Sampler):
         g = self.diffusion_coeff(t)
 
         score = pred_t
-        score = self.lmc_chain.run_chain(score=score, x=x_t)
-        mean_x = x_t + (g**2)[:, None, None, None] * score * dt
+        x_t, mean_x = self.reverse_step(x_t, score, g, dt)
+
+        for _ in range(update_steps - 1):
+            score = model(x_t, t, y)
+            x_t, mean_x = self.reverse_step(x_t, score, g, dt)
 
         if last:
+            self.lmc_chain.reset()
             return mean_x
-
-        x_t = mean_x + torch.sqrt(dt) * g[:, None, None, None] * torch.randn_like(x_t)
 
         return x_t
 
@@ -252,7 +265,7 @@ class VESDESampler(Sampler):
         dt: torch.Tensor,
         pred_t: torch.Tensor,
         last: bool = False,
-        **args,
+        **kwargs,
     ) -> torch.Tensor:
 
         std = self.marginal_prob_std(t)

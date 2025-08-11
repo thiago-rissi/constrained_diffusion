@@ -36,3 +36,6 @@ class PDLMCChain:
             self.lambdas = F.relu(self.lambdas + self.step_size_lambda * g_vals)
 
         return score
+
+    def reset(self):
+        self.lambdas = torch.zeros(len(self.gfuncs), device=self.device)

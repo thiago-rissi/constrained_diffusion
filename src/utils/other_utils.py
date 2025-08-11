@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
+from utils.samplers import Sampler
 
 
 @torch.no_grad()
@@ -15,7 +16,7 @@ def sample_image(
     x_t: torch.Tensor,
     reverse: Callable,
     timesteps: torch.Tensor,
-    *model_args,
+    **kwargs,
 ) -> torch.Tensor:
 
     dt = timesteps[1] - timesteps[0]
@@ -24,41 +25,43 @@ def sample_image(
         t = torch.full((1,), t.item(), device=x_t.device)
         y = torch.randint(0, 10, (1,), device=x_t.device)
         pred_t = model(x_t, t, y)
-        x_t = reverse(x_t, t, dt, pred_t)
+        x_t = reverse(x_t, t, dt, pred_t, model=model, y=y, **kwargs)
 
     t = timesteps[0]
     t = torch.full((1,), t.item(), device=x_t.device)
     y = torch.randint(0, 10, (1,), device=x_t.device)
     pred_t = model(x_t, t, y)
-    x_t = reverse(x_t, t, dt, pred_t, True)
+    x_t = reverse(x_t, t, dt, pred_t, model=model, last=True, y=y, **kwargs)
     return x_t
 
 
 def sample_images(
     model: torch.nn.Module,
-    reverse: Callable,
+    sampler: Sampler,
     timesteps: torch.Tensor,
-    img_ch: int,
-    img_size: int,
     device: torch.device,
     sample_size: int,
     plot: bool,
     save: bool,
     save_path: str = "/usr/src/code/sampled_images.png",
-    *model_args,
+    **kwargs,
 ) -> list:
 
     imgs = []
     for _ in tqdm(range(sample_size), desc="\t Sampling images"):
-        x_t = torch.randn((1, img_ch, img_size, img_size), device=device)
-        imgs.append(sample_image(model, x_t, reverse, timesteps, device, *model_args))
+        x_t = torch.randn(
+            (1, sampler.img_ch, sampler.img_size, sampler.img_size), device=device
+        )
+        imgs.append(sample_image(model, x_t, sampler.reverse, timesteps, **kwargs))
 
     if plot:
-        fig, axs = plt.subplots(1, sample_size)
+        plt.figure(figsize=(4 * sample_size, 4))
         for i, img in enumerate(imgs):
-            axi = axs[i] if sample_size > 1 else axs
-            axi.axis("off")
-            show_tensor_image(axi, img.detach().cpu())
+            ax = plt.subplot(1, sample_size, i + 1)
+            ax.axis("off")
+
+            show_tensor_image(img)
+
         plt.tight_layout()
         plt.show()
         if save:
@@ -107,6 +110,32 @@ def load_transformed_fashionMNIST(img_size, batch_size):
     return data, dataloader
 
 
+def load_CIFAR10(data_transform, train: bool = True):
+    return torchvision.datasets.CIFAR10(
+        "./data/",
+        download=True,
+        train=train,
+        transform=data_transform,
+    )
+
+
+def load_transformed_CIFAR10(img_size, batch_size):
+    data_transforms = [
+        transforms.Resize((img_size, img_size)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+    ]
+
+    data_transform = transforms.Compose(data_transforms)
+    train_set = load_CIFAR10(data_transform, train=True)
+    test_set = load_CIFAR10(data_transform, train=False)
+    data = torch.utils.data.ConcatDataset([train_set, test_set])
+    dataloader = DataLoader(
+        data, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4
+    )
+    return data, dataloader
+
+
 def load_MNIST(data_transform, train=True):
     return torchvision.datasets.MNIST(
         "./data/",
@@ -147,10 +176,9 @@ def transform_tensor_to_image(tensor: torch.Tensor):
     return reverse_transforms(tensor)
 
 
-def show_tensor_image(ax: plt.Axes, tensor: torch.Tensor):
+def show_tensor_image(tensor: torch.Tensor):
     image = transform_tensor_to_image(tensor[0].detach().cpu())
-    plt.figure(figsize=(4, 4))
-    ax.imshow(image, cmap="gray")
+    plt.imshow(image)
 
 
 def plot_generated_images(noise, result):

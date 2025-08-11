@@ -10,10 +10,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == "__main__":
     IMG_SIZE = 28
-    IMG_CH = 1
+    IMG_CH = 3
     BATCH_SIZE = 128
     N_CLASSES = 10
-    data, dataloader = load_transformed_MNIST(IMG_SIZE, BATCH_SIZE)
+    data, dataloader = load_transformed_CIFAR10(IMG_SIZE, BATCH_SIZE)
 
     timesteps = 250
     sigma = 25.0
@@ -45,12 +45,12 @@ if __name__ == "__main__":
         img_size=IMG_SIZE,
     )
 
-    num_epochs = 50
+    num_epochs = 150
     losses, model = trainer.train(
         model=model,
         dataloader=dataloader,
         num_epochs=num_epochs,
         sampler=vesde_sampler,
-        model_path="unet_transformer.pth",
+        model_path="unet_transformer_cifar10.pth",
         plot=False,
     )
