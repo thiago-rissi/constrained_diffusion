@@ -51,13 +51,13 @@ def classifier_constraint(
     Creates a classification constraint function for constrained diffusion sampling.
     """
 
-    classifier.eval()  # Make sure dropout/batchnorm aren't active
+    classifier.eval()
 
-    logits = classifier(x)  # (batch, num_classes)
+    logits = classifier(x)
     ce_loss = F.cross_entropy(
         logits,
         torch.full((x.size(0),), target_class, device=x.device, dtype=torch.long),
         reduction="none",
     )
-    g_val = ce_loss - epsilon  # (batch,)
-    return g_val.sum()  # must return scalar for grad
+    g_val = ce_loss - epsilon
+    return g_val.sum()

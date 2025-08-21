@@ -1,0 +1,11 @@
+dataset: MNIST
+model_class: UNet_Tranformer
+trainer: VESDETrainer
+sampler: VESDESampler
+lr: 1e-3
+num_epochs: 75
+batch_size: 128
+model_path: data/models
+sample_period: 500
+save_period: 5
+plot: false

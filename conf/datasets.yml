@@ -1,0 +1,14 @@
+MNIST:
+  img_size: 28
+  img_channels: 1
+  num_classes: 10
+
+FashionMNIST:
+  img_size: 28
+  img_channels: 1
+  num_classes: 10
+
+CIFAR10:
+  img_size: 28
+  img_channels: 3
+  num_classes: 10

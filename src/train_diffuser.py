@@ -1,19 +1,42 @@
 import torch
-from utils.schedulers import *
-from utils.samplers import *
-from utils.trainers import *
+from diffusion.schedulers import *
+from diffusion.samplers import *
+from diffusion.trainers import *
 from models.UNet import UNet, UNet2DWrapper, UNet_Tranformer, UNet_res
 from utils.other_utils import *
+import yaml
+import sys
+import pathlib
 
 torch.set_float32_matmul_precision("high")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == "__main__":
-    IMG_SIZE = 28
-    IMG_CH = 3
-    BATCH_SIZE = 128
-    N_CLASSES = 10
-    data, dataloader = load_transformed_CIFAR10(IMG_SIZE, BATCH_SIZE)
+    with open("config/train.yml", "r") as file:
+        train_config = yaml.safe_load(file)
+
+    with open("config/models.yml", "r") as file:
+        models_config = yaml.safe_load(file)
+
+    with open("config/datasets.yml", "r") as file:
+        datasets_config = yaml.safe_load(file)
+
+    dataset_name = train_config["dataset"]
+    dataset_dict = datasets_config[dataset_name]
+    img_size, img_channels, n_classes, batch_size = (
+        dataset_dict["img_size"],
+        dataset_dict["img_channels"],
+        dataset_dict["n_classes"],
+        train_config["batch_size"],
+    )
+
+    dataset = getattr(sys.modules[__name__], f"load_transformed_{dataset_name}")
+    data, dataloader = dataset(
+        img_size=img_size,
+        img_channels=img_channels,
+        n_classes=n_classes,
+        batch_size=batch_size,
+    )
 
     timesteps = 250
     sigma = 25.0
@@ -45,12 +68,12 @@ if __name__ == "__main__":
         img_size=IMG_SIZE,
     )
 
-    num_epochs = 150
+    num_epochs = 75
     losses, model = trainer.train(
         model=model,
         dataloader=dataloader,
         num_epochs=num_epochs,
         sampler=vesde_sampler,
-        model_path="unet_transformer_cifar10.pth",
+        model_path="unet_transformer.pth",
         plot=False,
     )

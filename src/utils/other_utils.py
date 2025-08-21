@@ -4,10 +4,9 @@ import matplotlib.pyplot as plt
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
-from utils.samplers import Sampler
+from diffusion.samplers import Sampler
 
 
 @torch.no_grad()
@@ -52,7 +51,8 @@ def sample_images(
         x_t = torch.randn(
             (1, sampler.img_ch, sampler.img_size, sampler.img_size), device=device
         )
-        imgs.append(sample_image(model, x_t, sampler.reverse, timesteps, **kwargs))
+        y = torch.randint(0, 10, (1,), device=x_t.device)
+        imgs.append(sampler.sample(x_t, model, timesteps, y, **kwargs))
 
     if plot:
         plt.figure(figsize=(4 * sample_size, 4))
@@ -83,82 +83,6 @@ def save_animation(xs, gif_name, interval=300, repeat_delay=5000):
         fig, imgs, interval=interval, repeat_delay=repeat_delay
     )
     animate.save(gif_name)
-
-
-def load_fashionMNIST(data_transform, train=True):
-    return torchvision.datasets.FashionMNIST(
-        "./data/",
-        download=True,
-        train=train,
-        transform=data_transform,
-    )
-
-
-def load_transformed_fashionMNIST(img_size, batch_size):
-    data_transforms = [
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),  # Scales data into [0,1]
-        transforms.RandomHorizontalFlip(),
-        transforms.Lambda(lambda t: (t * 2) - 1),  # Scale between [-1, 1]
-    ]
-
-    data_transform = transforms.Compose(data_transforms)
-    train_set = load_fashionMNIST(data_transform, train=True)
-    test_set = load_fashionMNIST(data_transform, train=False)
-    data = torch.utils.data.ConcatDataset([train_set, test_set])
-    dataloader = DataLoader(data, batch_size=batch_size, shuffle=True, drop_last=True)
-    return data, dataloader
-
-
-def load_CIFAR10(data_transform, train: bool = True):
-    return torchvision.datasets.CIFAR10(
-        "./data/",
-        download=True,
-        train=train,
-        transform=data_transform,
-    )
-
-
-def load_transformed_CIFAR10(img_size, batch_size):
-    data_transforms = [
-        transforms.Resize((img_size, img_size)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-    ]
-
-    data_transform = transforms.Compose(data_transforms)
-    train_set = load_CIFAR10(data_transform, train=True)
-    test_set = load_CIFAR10(data_transform, train=False)
-    data = torch.utils.data.ConcatDataset([train_set, test_set])
-    dataloader = DataLoader(
-        data, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4
-    )
-    return data, dataloader
-
-
-def load_MNIST(data_transform, train=True):
-    return torchvision.datasets.MNIST(
-        "./data/",
-        download=True,
-        train=train,
-        transform=data_transform,
-    )
-
-
-def load_transformed_MNIST(img_size, batch_size):
-    data_transforms = [
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-    ]
-
-    data_transform = transforms.Compose(data_transforms)
-    train_set = load_MNIST(data_transform, train=True)
-    test_set = load_MNIST(data_transform, train=False)
-    data = torch.utils.data.ConcatDataset([train_set, test_set])
-    dataloader = DataLoader(
-        data, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4
-    )
-    return data, dataloader
 
 
 def transform_tensor_to_image(tensor: torch.Tensor):

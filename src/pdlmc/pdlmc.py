@@ -21,7 +21,9 @@ class PDLMCChain:
         self.device = device
         self.lambdas = torch.zeros(len(self.gfuncs), device=device)
 
-    def run_chain(self, score: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def run_chain(
+        self, score: torch.Tensor, x: torch.Tensor, x_0: torch.Tensor
+    ) -> torch.Tensor:
         for _ in range(self.lmc_steps):
 
             grad_g_vals = torch.stack(
@@ -31,11 +33,17 @@ class PDLMCChain:
             score = score - self.step_size * torch.inner(self.lambdas, grad_g_vals)
 
             g_vals = torch.tensor(
-                [g_func(x) for g_func in self.gfuncs], device=self.device
+                [g_func(x_0) for g_func in self.gfuncs], device=self.device
             )
             self.lambdas = F.relu(self.lambdas + self.step_size_lambda * g_vals)
 
+        self.update_steps()
         return score
+
+    def update_steps(
+        self,
+    ):
+        pass
 
     def reset(self):
         self.lambdas = torch.zeros(len(self.gfuncs), device=self.device)
